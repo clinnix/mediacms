@@ -1114,7 +1114,7 @@ def video_trim_task(self, trim_request_id):
 # 3 beat task, remove chunks
 
 
-@task(name="upload_media_to_b2", bind=True, max_retries=3, default_retry_delay=60)
+@task(name="upload_media_to_b2", bind=True, queue="long_tasks", max_retries=3, default_retry_delay=60)
 def upload_media_to_b2(self, friendly_token):
     """将媒体文件全量上传到 Backblaze B2 私有桶，全部成功后删除本地文件。
 
