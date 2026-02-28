@@ -5,6 +5,8 @@ services:
     image: mediacms/mediacms:latest
     volumes:
       - ./:/home/mediacms.io/mediacms/
+    env_file:
+      - .env
     environment:
       ENABLE_UWSGI: 'no'
       ENABLE_NGINX: 'no'
@@ -29,6 +31,8 @@ services:
       - "80:80"
     volumes:
       - ./:/home/mediacms.io/mediacms/
+    env_file:
+      - .env
     environment:
       ENABLE_CELERY_BEAT: 'no'
       ENABLE_CELERY_SHORT: 'no'
@@ -54,6 +58,8 @@ services:
       replicas: 1
     volumes:
       - ./:/home/mediacms.io/mediacms/
+    env_file:
+      - .env
     environment:
       ENABLE_UWSGI: 'no'
       ENABLE_NGINX: 'no'
