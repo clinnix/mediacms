@@ -1,4 +1,7 @@
 cli-tool/.env
+.env
+deploy/cloudflare/.dev.vars
+deploy/cloudflare/node_modules/
 frontend/package-lock.json
 media_files/encoded/
 media_files/original/

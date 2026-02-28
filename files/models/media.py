@@ -618,6 +618,15 @@ class Media(models.Model):
             from .. import tasks
 
             tasks.create_hls.delay(self.friendly_token)
+            # B2 上传由 create_hls 任务末尾触发（确保 HLS 已生成后再上传）
+            # 若未配置 mp4hls（无 HLS），则在此直接触发
+            if getattr(settings, 'USE_B2_STORAGE', False):
+                hls_configured = (
+                    hasattr(settings, 'MP4HLS_COMMAND')
+                    and os.path.exists(settings.MP4HLS_COMMAND)
+                )
+                if not hls_configured:
+                    tasks.upload_media_to_b2.delay(self.friendly_token)
 
             # TODO: ideally would ensure this is run only at the end when the last encoding is done...
             vt_request = VideoTrimRequest.objects.filter(media=self, status="running").first()
@@ -881,6 +890,13 @@ class Media(models.Model):
         res = {}
         valid_resolutions = [144, 240, 360, 480, 720, 1080, 1440, 2160]
         if self.hls_file:
+            # B2 模式下文件已从本地删除，直接用 hls_file 路径生成 Worker URL
+            # Worker 会代理请求到 B2，m3u8 内的相对路径在 Worker 域下自动解析
+            if getattr(settings, 'USE_B2_STORAGE', False):
+                master_url = helpers.url_from_path(self.hls_file)
+                if master_url:
+                    return {"master_file": master_url}
+                return res
             if os.path.exists(self.hls_file):
                 hls_file = self.hls_file
                 p = os.path.dirname(hls_file)

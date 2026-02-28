@@ -96,13 +96,14 @@ class Encoding(models.Model):
         return None
 
     def save(self, *args, **kwargs):
-        if self.media_file:
+        # 文件可能已上传 B2 并从本地删除，用 isfile 守卫避免 stat 报错
+        if self.media_file and os.path.isfile(self.media_file.path):
             cmd = ["stat", "-c", "%s", self.media_file.path]
             stdout = helpers.run_command(cmd).get("out")
             if stdout:
                 size = int(stdout.strip())
                 self.size = helpers.show_file_size(size)
-        if self.chunk_file_path and not self.md5sum:
+        if self.chunk_file_path and not self.md5sum and os.path.isfile(self.chunk_file_path):
             cmd = ["md5sum", self.chunk_file_path]
             stdout = helpers.run_command(cmd).get("out")
             if stdout:
@@ -113,7 +114,7 @@ class Encoding(models.Model):
 
     def update_size_without_save(self):
         """Update the size of an encoding without saving to avoid calling signals"""
-        if self.media_file:
+        if self.media_file and os.path.isfile(self.media_file.path):
             cmd = ["stat", "-c", "%s", self.media_file.path]
             stdout = helpers.run_command(cmd).get("out")
             if stdout:

@@ -34,6 +34,7 @@ from .helpers import (
     rm_file,
     run_command,
     trim_video_method,
+    upload_file_to_b2,
 )
 from .methods import (
     copy_video,
@@ -622,6 +623,11 @@ def create_hls(friendly_token):
         if os.path.exists(pp):
             if media.hls_file != pp:
                 Media.objects.filter(pk=media.pk).update(hls_file=pp)
+
+    # HLS 生成完毕，触发 B2 上传（编码文件 + HLS 一并上传后删本地）
+    if getattr(settings, 'USE_B2_STORAGE', False):
+        upload_media_to_b2.delay(friendly_token)
+
     return True
 
 
@@ -1106,3 +1112,87 @@ def video_trim_task(self, trim_request_id):
 # (and check for their encdings, and delete them as well, along with
 # all chunks)
 # 3 beat task, remove chunks
+
+
+@task(name="upload_media_to_b2", bind=True, max_retries=3, default_retry_delay=60)
+def upload_media_to_b2(self, friendly_token):
+    """将媒体文件全量上传到 Backblaze B2 私有桶，全部成功后删除本地文件。
+
+    上传范围：
+      1. 原始上传文件
+      2. 所有成功编码（mp4/webm，非 chunk，非 gif）
+      3. HLS 目录（.m3u8 + 全部 .ts 分片）
+
+    只有全部上传成功才删本地文件；任何失败触发重试（最多 3 次），不删文件。
+    重复上传同一 key 会覆盖旧文件（幂等）。
+    """
+    if not getattr(settings, 'USE_B2_STORAGE', False):
+        return
+
+    try:
+        media = Media.objects.get(friendly_token=friendly_token)
+    except Media.DoesNotExist:
+        return
+
+    errors = []
+    uploaded = []  # 已成功上传的本地路径，最后统一删除
+
+    # ── 1. 原始文件 ──────────────────────────────────────────────────────────
+    if media.media_file:
+        local_path = media.media_file.path
+        if os.path.isfile(local_path):
+            try:
+                upload_file_to_b2(local_path)
+                uploaded.append(local_path)
+                logger.info("B2 uploaded original: %s", local_path)
+            except Exception as exc:
+                errors.append(f"original: {exc}")
+
+    # ── 2. 编码文件（mp4/webm，非 chunk，非 gif）─────────────────────────────
+    for encoding in media.encodings.filter(status="success", chunk=False).exclude(profile__extension="gif"):
+        if not encoding.media_file:
+            continue
+        local_path = encoding.media_file.path
+        if os.path.isfile(local_path):
+            try:
+                upload_file_to_b2(local_path)
+                uploaded.append(local_path)
+                logger.info("B2 uploaded encoding: %s", local_path)
+            except Exception as exc:
+                errors.append(f"encoding {encoding.id}: {exc}")
+
+    # ── 3. HLS 目录（.m3u8 + .ts 全部分片）──────────────────────────────────
+    hls_dir = None
+    if media.hls_file:
+        hls_dir = os.path.dirname(media.hls_file)
+        if os.path.isdir(hls_dir):
+            for root, _dirs, files in os.walk(hls_dir):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    try:
+                        upload_file_to_b2(fpath)
+                        uploaded.append(fpath)
+                    except Exception as exc:
+                        errors.append(f"hls {fpath}: {exc}")
+
+    # ── 失败则重试，不删任何本地文件 ─────────────────────────────────────────
+    if errors:
+        logger.warning("upload_media_to_b2 %s 部分失败，将重试: %s", friendly_token, errors)
+        raise self.retry(exc=Exception(str(errors)))
+
+    # ── 全部上传成功，删除本地文件 ───────────────────────────────────────────
+    for local_path in uploaded:
+        try:
+            if os.path.isfile(local_path):
+                os.remove(local_path)
+        except OSError as e:
+            logger.warning("删除本地文件失败 %s: %s", local_path, e)
+
+    # 清理 HLS 目录（.ts 已删，清理残留空目录）
+    if hls_dir and os.path.isdir(hls_dir):
+        try:
+            shutil.rmtree(hls_dir)
+        except OSError as e:
+            logger.warning("删除本地 HLS 目录失败 %s: %s", hls_dir, e)
+
+    logger.info("B2 upload + 本地清理完成: %s", friendly_token)

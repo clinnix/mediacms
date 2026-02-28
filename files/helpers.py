@@ -168,9 +168,71 @@ def rm_dir(directory):
     return False
 
 
+# 通过 Cloudflare Worker 代理的文件类型（视频 + 音频 + HLS）
+# 图片/字幕/sprites 等小文件仍走本地 nginx
+_CF_WORKER_EXTS = {
+    '.mp4', '.webm', '.m4v', '.mov', '.avi', '.mkv', '.flv',
+    '.m4a', '.mp3', '.ogg', '.opus',
+    '.m3u8', '.ts',  # HLS 主播放列表和分片
+}
+
+
+def get_b2_client():
+    """返回配置好的 boto3 S3 客户端（指向 Backblaze B2 端点）"""
+    import boto3
+    from botocore.config import Config
+
+    return boto3.client(
+        's3',
+        endpoint_url=settings.B2_ENDPOINT_URL,
+        aws_access_key_id=settings.B2_KEY_ID,
+        aws_secret_access_key=settings.B2_APP_KEY,
+        config=Config(signature_version='s3v4'),
+        region_name=settings.B2_REGION,
+    )
+
+
+def b2_key_from_path(local_path):
+    """将本地绝对路径转换为 B2 对象 key（相对于 MEDIA_ROOT）"""
+    return str(local_path).replace(settings.MEDIA_ROOT, '').lstrip('/')
+
+
+def upload_file_to_b2(local_path):
+    """上传单个文件到 B2，返回 B2 key；失败时抛出异常"""
+    key = b2_key_from_path(local_path)
+    get_b2_client().upload_file(str(local_path), settings.B2_BUCKET_NAME, key)
+    return key
+
+
+def generate_b2_presigned_url(local_path, expires=None):
+    """为 B2 上的对象生成预签名 URL，expires 单位为秒"""
+    if expires is None:
+        expires = getattr(settings, 'B2_SIGNED_URL_EXPIRY', 7200)
+    key = b2_key_from_path(local_path)
+    url = get_b2_client().generate_presigned_url(
+        'get_object',
+        Params={'Bucket': settings.B2_BUCKET_NAME, 'Key': key},
+        ExpiresIn=expires,
+    )
+    return url
+
+
 def url_from_path(filename):
+    """将本地文件路径转换为可访问 URL。
+    若 USE_B2_STORAGE=True 且文件为视频/音频/HLS，则返回 Cloudflare Worker URL。
+    Worker 负责验证用户身份并代理 B2 视频流，HLS 分片(.ts)的相对路径
+    在 Worker 域名下自然解析，无需额外处理。
+    """
+    if filename and getattr(settings, 'USE_B2_STORAGE', False):
+        worker_base = getattr(settings, 'CF_WORKER_BASE_URL', '').rstrip('/')
+        if worker_base:
+            _, ext = os.path.splitext(str(filename).lower())
+            if ext in _CF_WORKER_EXTS:
+                relative_key = b2_key_from_path(filename)
+                if relative_key:
+                    return f"{worker_base}/media/{relative_key}"
     # TODO: find a way to preserver http - https ...
-    return f"{settings.MEDIA_URL}{filename.replace(settings.MEDIA_ROOT, '')}"
+    return f"{settings.MEDIA_URL}{str(filename).replace(settings.MEDIA_ROOT, '')}"
 
 
 def create_temp_file(suffix=None, dir=settings.TEMP_DIRECTORY):

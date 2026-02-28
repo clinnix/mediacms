@@ -1,3 +1,8 @@
+import base64
+import hashlib
+import hmac
+import json
+import time
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -1073,3 +1078,113 @@ class MediaSearch(APIView):
             page = paginator.paginate_queryset(media, request)
             serializer = MediaSearchSerializer(page, many=True, context={"request": request})
             return paginator.get_paginated_response(serializer.data)
+
+
+class MediaSignedUrl(APIView):
+    """为 Cloudflare Worker 或前端提供 B2 预签名视频 URL。
+    需要用户登录；对 private 媒体还会检查成员权限。
+    GET /api/v1/media/{friendly_token}/signed_url/
+    返回: {"video_url": "...", "original_url": "..."}
+    """
+
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request, friendly_token, format=None):
+        if not getattr(settings, 'USE_B2_STORAGE', False):
+            return Response({"detail": "B2 storage is not enabled."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            media = Media.objects.get(friendly_token=friendly_token)
+        except Media.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # 权限检查：private 媒体要求成员访问权
+        if media.state == "private":
+            has_access = (
+                is_mediacms_editor(request.user)
+                or media.user == request.user
+                or media.permissions.filter(user=request.user).exists()
+            )
+            if not has_access:
+                return Response({"detail": "需要会员权限。"}, status=status.HTTP_403_FORBIDDEN)
+
+        result = {}
+        expires = getattr(settings, 'B2_SIGNED_URL_EXPIRY', 7200)
+
+        # 最高清 mp4 编码（优先给播放器使用）
+        best_enc = (
+            media.encodings.filter(status="success", profile__extension="mp4", chunk=False)
+            .order_by("-profile__resolution")
+            .first()
+        )
+        if best_enc and best_enc.media_file:
+            try:
+                result["video_url"] = helpers.generate_b2_presigned_url(best_enc.media_file.path, expires=expires)
+            except Exception as e:
+                result["video_url_error"] = str(e)
+
+        # 原始文件（可选，仅 SHOW_ORIGINAL_MEDIA=True 时暴露）
+        if settings.SHOW_ORIGINAL_MEDIA and media.media_file:
+            try:
+                result["original_url"] = helpers.generate_b2_presigned_url(media.media_file.path, expires=expires)
+            except Exception as e:
+                result["original_url_error"] = str(e)
+
+        return Response(result)
+
+
+def _make_video_jwt(user, friendly_token, secret, ttl=7200):
+    """Issue a short-lived HS256 JWT for Cloudflare Worker validation."""
+    def b64url(data):
+        if isinstance(data, str):
+            data = data.encode()
+        return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+    header = b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(',', ':')))
+    payload = b64url(json.dumps({
+        "sub": str(user.id),
+        "media": friendly_token,
+        "exp": int(time.time()) + ttl,
+    }, separators=(',', ':')))
+    signing_input = f"{header}.{payload}"
+    sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
+    return f"{signing_input}.{b64url(sig)}"
+
+
+class MediaVideoToken(APIView):
+    """
+    为 Cloudflare Worker 颁发短期 JWT，前端播放时附在 Authorization 头。
+    GET /api/v1/media/{friendly_token}/video_token
+    返回: {"token": "<jwt>", "worker_base_url": "https://cdn.5xxxxx.cc"}
+    """
+
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request, friendly_token, format=None):
+        if not getattr(settings, 'USE_B2_STORAGE', False):
+            return Response({"detail": "B2 storage is not enabled."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            media = Media.objects.get(friendly_token=friendly_token)
+        except Media.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # 权限检查：private 媒体要求成员访问权
+        if media.state == "private":
+            has_access = (
+                is_mediacms_editor(request.user)
+                or media.user == request.user
+                or media.permissions.filter(user=request.user).exists()
+            )
+            if not has_access:
+                return Response({"detail": "需要会员权限。"}, status=status.HTTP_403_FORBIDDEN)
+
+        token = _make_video_jwt(
+            user=request.user,
+            friendly_token=friendly_token,
+            secret=settings.SECRET_KEY,
+        )
+        return Response({
+            "token": token,
+            "worker_base_url": getattr(settings, 'CF_WORKER_BASE_URL', '').rstrip('/'),
+        })

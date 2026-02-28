@@ -79,6 +79,16 @@ urlpatterns = [
         rf"^api/v1/media/{friendly_token}/trim_video$",
         views.trim_video,
     ),
+    re_path(
+        rf"^api/v1/media/{friendly_token}/signed_url$",
+        views.MediaSignedUrl.as_view(),
+        name="api_media_signed_url",
+    ),
+    re_path(
+        rf"^api/v1/media/{friendly_token}/video_token$",
+        views.MediaVideoToken.as_view(),
+        name="api_media_video_token",
+    ),
     re_path(r"^api/v1/categories$", views.CategoryList.as_view()),
     re_path(r"^api/v1/tags$", views.TagList.as_view()),
     re_path(r"^api/v1/comments$", views.CommentList.as_view()),
