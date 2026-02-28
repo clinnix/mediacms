@@ -378,6 +378,15 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
             : [];
     }, [mediaData?.data?.chapter_data, mediaData?.data?.duration, isDevMode, convertChaptersData, hasRealChapters]);
 
+    // Helper: prepend siteUrl only if the URL is relative (not already absolute)
+    const resolveUrl = (siteUrl, url) => {
+        if (!url) return url;
+        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('//')) {
+            return url;
+        }
+        return siteUrl + url;
+    };
+
     // Helper function to determine MIME type based on file extension or media type
     const getMimeType = (url, mediaType) => {
         if (mediaType === 'audio') {
@@ -425,7 +434,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
                 if (userQuality === 'auto' && mediaData.data.hls_info.master_file) {
                     return [
                         {
-                            src: mediaData.siteUrl + mediaData.data.hls_info.master_file,
+                            src: resolveUrl(mediaData.siteUrl, mediaData.data.hls_info.master_file),
                             type: 'application/x-mpegURL', // HLS MIME type
                             label: 'Auto',
                         },
@@ -438,7 +447,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
                     if (mediaData.data.hls_info[qualityKey]) {
                         return [
                             {
-                                src: mediaData.siteUrl + mediaData.data.hls_info[qualityKey],
+                                src: resolveUrl(mediaData.siteUrl, mediaData.data.hls_info[qualityKey]),
                                 type: 'application/x-mpegURL', // HLS MIME type
                                 label: `${userQuality}p`,
                             },
@@ -450,7 +459,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
                 if (mediaData.data.hls_info.master_file) {
                     return [
                         {
-                            src: mediaData.siteUrl + mediaData.data.hls_info.master_file,
+                            src: resolveUrl(mediaData.siteUrl, mediaData.data.hls_info.master_file),
                             type: 'application/x-mpegURL', // HLS MIME type
                             label: 'Auto',
                         },
@@ -510,7 +519,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
 
             // Final fallback to original media URL or sample video
             if (mediaData.data?.original_media_url) {
-                const sourceUrl = mediaData.siteUrl + mediaData.data.original_media_url;
+                const sourceUrl = resolveUrl(mediaData.siteUrl, mediaData.data.original_media_url);
                 return [
                     {
                         src: sourceUrl,
@@ -616,7 +625,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
             qualities.push({
                 label: 'Auto',
                 value: 'auto',
-                src: mediaData.siteUrl + hlsInfo.master_file,
+                src: resolveUrl(mediaData.siteUrl, hlsInfo.master_file),
                 type: 'application/x-mpegURL',
             });
 
@@ -627,7 +636,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
                     qualities.push({
                         label: `${quality}p`,
                         value: `${quality}p`,
-                        src: mediaData.siteUrl + hlsInfo[key],
+                        src: resolveUrl(mediaData.siteUrl, hlsInfo[key]),
                         type: 'application/x-mpegURL',
                     });
                 }
