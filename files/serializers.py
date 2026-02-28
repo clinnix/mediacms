@@ -102,6 +102,7 @@ class SingleMediaSerializer(serializers.ModelSerializer):
     user = serializers.ReadOnlyField(source="user.username")
     url = serializers.SerializerMethodField()
     is_shared = serializers.SerializerMethodField()
+    video_token = serializers.SerializerMethodField()
 
     def get_url(self, obj):
         return self.context["request"].build_absolute_uri(obj.get_absolute_url())
@@ -111,6 +112,40 @@ class SingleMediaSerializer(serializers.ModelSerializer):
         custom_permissions = obj.permissions.exists()
         rbac_categories = obj.category.filter(is_rbac_category=True).exists()
         return custom_permissions or rbac_categories
+
+    def get_video_token(self, obj):
+        if not getattr(settings, 'USE_B2_STORAGE', False):
+            return None
+        from .helpers import make_video_jwt
+        request = self.context.get('request')
+        user = request.user if request else None
+        return make_video_jwt(user, obj.friendly_token, settings.SECRET_KEY)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not getattr(settings, 'USE_B2_STORAGE', False):
+            return data
+        token = data.get('video_token')
+        cf_base = getattr(settings, 'CF_WORKER_BASE_URL', '').rstrip('/')
+        if not token or not cf_base:
+            return data
+
+        # Inject ?token= into all CF Worker URLs in hls_info
+        hls_info = data.get('hls_info') or {}
+        for key, url in hls_info.items():
+            if isinstance(url, str) and url.startswith(cf_base):
+                hls_info[key] = f"{url}?token={token}"
+
+        # Inject ?token= into all CF Worker URLs in encodings_info
+        encodings_info = data.get('encodings_info') or {}
+        for _res, codecs in encodings_info.items():
+            if not isinstance(codecs, dict):
+                continue
+            for _codec, enc in codecs.items():
+                if isinstance(enc, dict) and isinstance(enc.get('url'), str):
+                    if enc['url'].startswith(cf_base):
+                        enc['url'] = f"{enc['url']}?token={token}"
+        return data
 
     class Meta:
         model = Media
@@ -174,6 +209,7 @@ class SingleMediaSerializer(serializers.ModelSerializer):
             "add_subtitle_url",
             "allow_download",
             "slideshow_items",
+            "video_token",
         )
 
 

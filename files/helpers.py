@@ -177,6 +177,33 @@ _CF_WORKER_EXTS = {
 }
 
 
+def make_video_jwt(user, friendly_token, secret, ttl=7200):
+    """Issue a short-lived HS256 JWT for Cloudflare Worker video access.
+    Works for both authenticated users (user.id as sub) and anonymous (sub='anon').
+    """
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    def b64url(data):
+        if isinstance(data, str):
+            data = data.encode()
+        return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+    header = b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(',', ':')))
+    user_id = str(user.id) if user and getattr(user, 'is_authenticated', False) else 'anon'
+    payload = b64url(json.dumps({
+        "sub": user_id,
+        "media": friendly_token,
+        "exp": int(time.time()) + ttl,
+    }, separators=(',', ':')))
+    signing_input = f"{header}.{payload}"
+    sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
+    return f"{signing_input}.{b64url(sig)}"
+
+
 def get_b2_client():
     """返回配置好的 boto3 S3 客户端（指向 Backblaze B2 端点）"""
     import boto3

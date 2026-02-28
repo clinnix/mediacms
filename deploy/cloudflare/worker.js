@@ -3,9 +3,11 @@
  *
  * 功能：
  *   1. 验证请求携带的 JWT（由 Django 颁发）
+ *      - 优先从 URL 查询参数 ?token= 读取（HLS 分片场景）
+ *      - 其次从 Authorization: Bearer <token> 读取
  *   2. 用 Worker 内置的 B2 密钥生成预签名 URL
  *   3. 代理 B2 视频流，支持 Range 请求（视频 seek）
- *   4. HLS 分片（.ts）请求自动走同一逻辑
+ *   4. HLS m3u8 响应自动注入 ?token= 到所有相对 URI，实现无感刷新
  *
  * 环境变量（在 Cloudflare Dashboard → Worker → Settings → Variables 配置）：
  *   JWT_SECRET        - 与 Django SECRET_KEY 一致，或单独设置的共享密钥
@@ -42,8 +44,12 @@ export default {
     }
 
     // ── 验证 JWT ─────────────────────────────────────────────────────────────
-    const authHeader = request.headers.get('Authorization') || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    // 优先读 ?token= 参数（HLS m3u8/ts 分片场景），其次读 Authorization 头
+    let token = url.searchParams.get('token') || null;
+    if (!token) {
+      const authHeader = request.headers.get('Authorization') || '';
+      token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    }
 
     if (!token) {
       return new Response('Unauthorized: missing token', { status: 401 });
@@ -80,12 +86,50 @@ export default {
     respHeaders.set('Access-Control-Allow-Origin', '*');
     respHeaders.set('Cache-Control', 'private, max-age=3600');
 
+    // ── HLS m3u8：重写相对 URI，注入 ?token= ─────────────────────────────────
+    const isM3u8 = b2Key.endsWith('.m3u8');
+    if (isM3u8 && b2Response.ok) {
+      const bodyText = await b2Response.text();
+      const rewritten = rewriteM3u8(bodyText, token);
+      respHeaders.set('Content-Type', 'application/vnd.apple.mpegurl');
+      respHeaders.delete('Content-Length');
+      return new Response(rewritten, {
+        status: b2Response.status,
+        headers: respHeaders,
+      });
+    }
+
     return new Response(b2Response.body, {
       status: b2Response.status,
       headers: respHeaders,
     });
   },
 };
+
+// ── HLS m3u8 重写：为所有相对 URI 行追加 ?token= ────────────────────────────
+function rewriteM3u8(text, token) {
+  return text
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      // 处理含 URI="..." 的标签行（如 #EXT-X-KEY, #EXT-X-MAP）
+      if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
+        return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+          if (uri.startsWith('http')) return match;
+          const sep = uri.includes('?') ? '&' : '?';
+          return `URI="${uri}${sep}token=${token}"`;
+        });
+      }
+      // 普通注释行跳过
+      if (trimmed.startsWith('#')) return line;
+      // 普通 URI 行（相对路径：segment001.ts 或 video_720p/stream.m3u8）
+      if (trimmed.startsWith('http')) return line; // 已是绝对 URL
+      const sep = trimmed.includes('?') ? '&' : '?';
+      return `${trimmed}${sep}token=${token}`;
+    })
+    .join('\n');
+}
 
 // ── JWT 验证（HS256）────────────────────────────────────────────────────────
 async function verifyJwt(token, secret) {
