@@ -697,7 +697,10 @@ class Media(models.Model):
             return ret
 
         if self.encoding_status in ["running", "pending"]:
-            ret['0-original'] = {"h264": {"url": helpers.url_from_path(self.media_file.path), "status": "success", "progress": 100}}
+            # B2 模式下原始文件尚未上传到 B2，不能返回 CF Worker URL（会 403）
+            # 非 B2 模式下返回本地原始文件供边编码边播放
+            if not getattr(settings, 'USE_B2_STORAGE', False):
+                ret['0-original'] = {"h264": {"url": helpers.url_from_path(self.media_file.path), "status": "success", "progress": 100}}
             return ret
 
         for encoding in self.encodings.select_related("profile").filter(chunk=False):
