@@ -179,7 +179,9 @@ function base64UrlDecode(str) {
 async function generateB2PresignedUrl(key, env, expiresIn = 3600) {
   const region = env.B2_REGION;
   const bucket = env.B2_BUCKET_NAME;
-  const host = env.B2_ENDPOINT; // e.g. s3.us-west-004.backblazeb2.com
+  // Virtual-hosted style: bucket 放到 hostname，canonicalUri 只含 key
+  // 这样签名 URI 和实际请求 URI 完全一致，避免 403 Invalid Signature
+  const host = `${bucket}.${env.B2_ENDPOINT}`; // e.g. mybucket.s3.us-west-004.backblazeb2.com
   const accessKeyId = env.B2_KEY_ID;
   const secretKey = env.B2_APP_KEY;
 
@@ -225,7 +227,8 @@ async function generateB2PresignedUrl(key, env, expiresIn = 3600) {
 
   queryParams.set('X-Amz-Signature', signature);
 
-  return `https://${host}/${bucket}/${key}?${queryParams.toString()}`;
+  // Virtual-hosted style URL: https://bucket.s3endpoint/key?sig
+  return `https://${host}/${key}?${queryParams.toString()}`;
 }
 
 async function sha256hex(message) {
