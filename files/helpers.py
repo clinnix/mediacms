@@ -231,35 +231,58 @@ def upload_file_to_b2(local_path):
     return key
 
 
+def _collect_all_versions(paginator, bucket, prefix):
+    """返回 bucket 中匹配 prefix 的所有版本和 delete marker（用于 versioned 桶的彻底删除）"""
+    objects = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for v in page.get('Versions', []):
+            objects.append({'Key': v['Key'], 'VersionId': v['VersionId']})
+        for dm in page.get('DeleteMarkers', []):
+            objects.append({'Key': dm['Key'], 'VersionId': dm['VersionId']})
+    return objects
+
+
 def delete_file_from_b2(local_path):
-    """删除 B2 上的单个对象（由本地路径推算 key）；对象不存在时静默忽略"""
+    """删除 B2 上的单个对象的所有版本（兼容 versioned 桶）；对象不存在时静默忽略"""
     key = b2_key_from_path(local_path)
     if not key:
         logger.warning("delete_file_from_b2: empty key for path=%s", local_path)
         return
     try:
-        get_b2_client().delete_object(Bucket=settings.B2_BUCKET_NAME, Key=key)
-        logger.info("delete_file_from_b2: deleted key=%s", key)
+        client = get_b2_client()
+        paginator = client.get_paginator('list_object_versions')
+        # 过滤只取完全匹配该 key 的版本（prefix 可能带出同前缀的其他 key）
+        all_objs = [o for o in _collect_all_versions(paginator, settings.B2_BUCKET_NAME, key)
+                    if o['Key'] == key]
+        if all_objs:
+            client.delete_objects(Bucket=settings.B2_BUCKET_NAME, Delete={'Objects': all_objs})
+            logger.info("delete_file_from_b2: deleted key=%s versions=%d", key, len(all_objs))
+        else:
+            logger.info("delete_file_from_b2: key not found in B2 key=%s", key)
     except Exception as exc:
         logger.error("delete_file_from_b2: FAILED key=%s error=%s", key, exc)
 
 
 def delete_prefix_from_b2(local_dir):
-    """删除 B2 上以本地目录对应 prefix 开头的所有对象（用于 HLS 目录整体删除）"""
+    """删除 B2 上以本地目录对应 prefix 开头的所有对象及其所有版本（兼容 versioned 桶）"""
     prefix = b2_key_from_path(local_dir).rstrip('/') + '/'
     if not prefix or prefix == '/':
         logger.warning("delete_prefix_from_b2: empty/root prefix for dir=%s", local_dir)
         return
     try:
         client = get_b2_client()
-        paginator = client.get_paginator('list_objects_v2')
+        paginator = client.get_paginator('list_object_versions')
         deleted_count = 0
         for page in paginator.paginate(Bucket=settings.B2_BUCKET_NAME, Prefix=prefix):
-            objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
-            if objects:
-                client.delete_objects(Bucket=settings.B2_BUCKET_NAME, Delete={'Objects': objects})
-                deleted_count += len(objects)
-        logger.info("delete_prefix_from_b2: prefix=%s deleted=%d objects", prefix, deleted_count)
+            to_delete = []
+            for v in page.get('Versions', []):
+                to_delete.append({'Key': v['Key'], 'VersionId': v['VersionId']})
+            for dm in page.get('DeleteMarkers', []):
+                to_delete.append({'Key': dm['Key'], 'VersionId': dm['VersionId']})
+            if to_delete:
+                client.delete_objects(Bucket=settings.B2_BUCKET_NAME, Delete={'Objects': to_delete})
+                deleted_count += len(to_delete)
+        logger.info("delete_prefix_from_b2: prefix=%s deleted=%d versions", prefix, deleted_count)
     except Exception as exc:
         logger.error("delete_prefix_from_b2: FAILED prefix=%s error=%s", prefix, exc)
 
