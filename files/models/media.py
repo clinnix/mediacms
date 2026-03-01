@@ -65,6 +65,14 @@ class Media(models.Model):
 
     encoding_status = models.CharField(max_length=20, choices=MEDIA_ENCODING_STATUS, default="pending", db_index=True)
 
+    b2_status = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="B2 upload status: pending/running/success/fail. Null when B2 storage is not used.",
+    )
+
     featured = models.BooleanField(
         default=False,
         db_index=True,
@@ -262,6 +270,11 @@ class Media(models.Model):
                 if not Media.objects.filter(friendly_token=friendly_token):
                     self.friendly_token = friendly_token
                     break
+
+        # initialise b2_status for new objects when B2 storage is enabled
+        if not self.pk and getattr(settings, 'USE_B2_STORAGE', False):
+            if self.b2_status is None:
+                self.b2_status = "pending"
 
         if self.pk:
             # media exists
@@ -697,10 +710,10 @@ class Media(models.Model):
             return ret
 
         if self.encoding_status in ["running", "pending"]:
-            # url_from_path 会检查文件是否仍在本地：
-            # - 本地存在 → 返回 MEDIA_URL（编码/B2上传期间可直接播放原始文件）
-            # - 本地不存在 → 返回 CF Worker URL（B2上传完成后）
-            ret['0-original'] = {"h264": {"url": helpers.url_from_path(self.media_file.path), "status": "success", "progress": 100}}
+            # 编码期间前端只在 b2_status='success' 后才显示播放器，此处返回原始文件
+            # URL 仅供非 B2 模式下边编码边播放使用（B2 模式由 b2_status 控制显示逻辑）
+            if not getattr(settings, 'USE_B2_STORAGE', False):
+                ret['0-original'] = {"h264": {"url": helpers.url_from_path(self.media_file.path), "status": "success", "progress": 100}}
             return ret
 
         for encoding in self.encodings.select_related("profile").filter(chunk=False):

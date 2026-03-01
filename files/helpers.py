@@ -271,20 +271,18 @@ def generate_b2_presigned_url(local_path, expires=None):
 def url_from_path(filename):
     """将本地文件路径转换为可访问 URL。
     若 USE_B2_STORAGE=True 且文件为视频/音频/HLS，则返回 Cloudflare Worker URL。
-    只有当本地文件不存在时（即已上传 B2 并删除了本地副本），才返回 CF Worker URL；
-    否则文件仍在本地处理中，直接用本地 MEDIA_URL 回退，避免 CF Worker 404。
+    Worker 负责验证用户身份并代理 B2 视频流，HLS 分片(.ts)的相对路径
+    在 Worker 域名下自然解析，无需额外处理。
+    前端在 b2_status='success' 后才激活播放器，无需在此判断文件本地是否存在。
     """
     if filename and getattr(settings, 'USE_B2_STORAGE', False):
         worker_base = getattr(settings, 'CF_WORKER_BASE_URL', '').rstrip('/')
         if worker_base:
             _, ext = os.path.splitext(str(filename).lower())
             if ext in _CF_WORKER_EXTS:
-                # 只有本地文件已删除（上传 B2 完成）才走 CF Worker，
-                # 否则文件还在本地处理阶段，继续用 MEDIA_URL 提供访问
-                if not os.path.isfile(str(filename)):
-                    relative_key = b2_key_from_path(filename)
-                    if relative_key:
-                        return f"{worker_base}/media/{relative_key}"
+                relative_key = b2_key_from_path(filename)
+                if relative_key:
+                    return f"{worker_base}/media/{relative_key}"
     # TODO: find a way to preserver http - https ...
     return f"{settings.MEDIA_URL}{str(filename).replace(settings.MEDIA_ROOT, '')}"
 

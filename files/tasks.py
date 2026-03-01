@@ -1134,6 +1134,9 @@ def upload_media_to_b2(self, friendly_token):
     except Media.DoesNotExist:
         return
 
+    media.b2_status = "running"
+    media.save(update_fields=["b2_status"])
+
     errors = []
     uploaded = []  # 已成功上传的本地路径，最后统一删除
 
@@ -1178,6 +1181,9 @@ def upload_media_to_b2(self, friendly_token):
     # ── 失败则重试，不删任何本地文件 ─────────────────────────────────────────
     if errors:
         logger.warning("upload_media_to_b2 %s 部分失败，将重试: %s", friendly_token, errors)
+        if self.request.retries >= self.max_retries:
+            media.b2_status = "fail"
+            media.save(update_fields=["b2_status"])
         raise self.retry(exc=Exception(str(errors)))
 
     # ── 全部上传成功，删除本地文件 ───────────────────────────────────────────
@@ -1195,4 +1201,6 @@ def upload_media_to_b2(self, friendly_token):
         except OSError as e:
             logger.warning("删除本地 HLS 目录失败 %s: %s", hls_dir, e)
 
+    media.b2_status = "success"
+    media.save(update_fields=["b2_status"])
     logger.info("B2 upload + 本地清理完成: %s", friendly_token)

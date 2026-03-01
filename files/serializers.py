@@ -210,6 +210,7 @@ class SingleMediaSerializer(serializers.ModelSerializer):
             "allow_download",
             "slideshow_items",
             "video_token",
+            "b2_status",
         )
 
 

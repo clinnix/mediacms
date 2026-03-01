@@ -13,7 +13,23 @@ import {
 // import { VideoPlayer, VideoPlayerError } from '../../video-player/VideoPlayer';
 import VideoJSEmbed from '../../VideoJS/VideoJSEmbed';
 
-function filterVideoEncoding(encoding_status) {
+function filterVideoEncoding(encoding_status, b2_status) {
+    // B2 upload not yet done — block player regardless of encoding state
+    if (b2_status === 'pending' || b2_status === 'running') {
+        const msg =
+            b2_status === 'running'
+                ? 'Uploading to cloud storage, please wait...'
+                : 'Video is being processed, please wait...';
+        MediaPageStore.set('media-load-error-type', 'b2Uploading');
+        MediaPageStore.set('media-load-error-message', msg);
+        return;
+    }
+    if (b2_status === 'fail') {
+        MediaPageStore.set('media-load-error-type', 'b2Failed');
+        MediaPageStore.set('media-load-error-message', 'Cloud upload failed. Please contact the administrator.');
+        return;
+    }
+
     switch (encoding_status) {
         case 'running_X':
             MediaPageStore.set('media-load-error-type', 'encodingRunning');
@@ -43,10 +59,15 @@ export default class VideoViewer extends React.PureComponent {
 
         this.videoSources = [];
 
-        filterVideoEncoding(this.props.data.encoding_status);
+        filterVideoEncoding(this.props.data.encoding_status, this.props.data.b2_status);
 
         if (null !== MediaPageStore.get('media-load-error-type')) {
             this.state.displayPlayer = true;
+            // Auto-poll when B2 upload is still in progress
+            if (this.props.data.b2_status === 'pending' || this.props.data.b2_status === 'running') {
+                this._b2PollInterval = null;
+                this._startB2Polling(this.props.data);
+            }
             return;
         }
 
@@ -237,7 +258,7 @@ export default class VideoViewer extends React.PureComponent {
                         const shareWrap = document.querySelector('.share-options-wrapper');
                         const shareInner = document.querySelector('.share-options-inner');
                         if (shareBtn) {
-                            shareBtn.addEventListener('click', function (ev) {
+                            shareBtn.addEventListener('click', function () {
                                 addClassname(
                                     document.querySelector('.video-js.vjs-mediacms'),
                                     'vjs-visible-share-options'
@@ -257,6 +278,34 @@ export default class VideoViewer extends React.PureComponent {
                     }, 1000);
                 }
             );
+        }
+    }
+
+    _startB2Polling(mediaData) {
+        // Fetch the media API every 5 s; reload the page once b2_status is 'success'
+        const apiUrl =
+            (window.MediaCMS && window.MediaCMS.api && window.MediaCMS.api.media
+                ? window.MediaCMS.api.media
+                : '/api/v1/media') +
+            '/' +
+            mediaData.friendly_token +
+            '/';
+
+        this._b2PollInterval = setInterval(function () {
+            fetch(apiUrl, { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.b2_status === 'success' || data.b2_status === null) {
+                        window.location.reload();
+                    }
+                })
+                .catch(function () { /* ignore network errors, keep polling */ });
+        }, 5000);
+    }
+
+    componentWillUnmount() {
+        if (this._b2PollInterval) {
+            clearInterval(this._b2PollInterval);
         }
     }
 
