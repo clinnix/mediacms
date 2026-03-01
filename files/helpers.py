@@ -235,24 +235,33 @@ def delete_file_from_b2(local_path):
     """删除 B2 上的单个对象（由本地路径推算 key）；对象不存在时静默忽略"""
     key = b2_key_from_path(local_path)
     if not key:
+        logger.warning("delete_file_from_b2: empty key for path=%s", local_path)
         return
     try:
         get_b2_client().delete_object(Bucket=settings.B2_BUCKET_NAME, Key=key)
-    except Exception:
-        pass
+        logger.info("delete_file_from_b2: deleted key=%s", key)
+    except Exception as exc:
+        logger.error("delete_file_from_b2: FAILED key=%s error=%s", key, exc)
 
 
 def delete_prefix_from_b2(local_dir):
     """删除 B2 上以本地目录对应 prefix 开头的所有对象（用于 HLS 目录整体删除）"""
     prefix = b2_key_from_path(local_dir).rstrip('/') + '/'
     if not prefix or prefix == '/':
+        logger.warning("delete_prefix_from_b2: empty/root prefix for dir=%s", local_dir)
         return
-    client = get_b2_client()
-    paginator = client.get_paginator('list_objects_v2')
-    for page in paginator.paginate(Bucket=settings.B2_BUCKET_NAME, Prefix=prefix):
-        objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
-        if objects:
-            client.delete_objects(Bucket=settings.B2_BUCKET_NAME, Delete={'Objects': objects})
+    try:
+        client = get_b2_client()
+        paginator = client.get_paginator('list_objects_v2')
+        deleted_count = 0
+        for page in paginator.paginate(Bucket=settings.B2_BUCKET_NAME, Prefix=prefix):
+            objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
+            if objects:
+                client.delete_objects(Bucket=settings.B2_BUCKET_NAME, Delete={'Objects': objects})
+                deleted_count += len(objects)
+        logger.info("delete_prefix_from_b2: prefix=%s deleted=%d objects", prefix, deleted_count)
+    except Exception as exc:
+        logger.error("delete_prefix_from_b2: FAILED prefix=%s error=%s", prefix, exc)
 
 
 def generate_b2_presigned_url(local_path, expires=None):

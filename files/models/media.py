@@ -1078,6 +1078,12 @@ def media_file_delete(sender, instance, **kwargs):
     when corresponding `Media` object is deleted.
     """
     use_b2 = getattr(settings, 'USE_B2_STORAGE', False)
+    logger.info(
+        "media_file_delete: token=%s use_b2=%s media_file=%s hls_file=%s",
+        instance.friendly_token, use_b2,
+        instance.media_file.name if instance.media_file else None,
+        instance.hls_file or None,
+    )
 
     def _rm(path):
         helpers.rm_file(path)
