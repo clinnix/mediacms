@@ -75,8 +75,10 @@ class FineUploaderView(generic.FormView):
             _video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v', '.flv', '.wmv', '.mpeg', '.mpg', '.3gp'}
             if os.path.splitext(new.media_file.name)[1].lower() in _video_exts:
                 new.media_type = 'video'  # 仅内存赋值，不持久化
-                if new.produce_thumbnails_from_video():
-                    thumbnail_url = self.request.build_absolute_uri(new.thumbnail_url)
+                new.produce_thumbnails_from_video()
+                thumb = new.thumbnail_url  # None if ffmpeg failed to create thumbnail
+                if thumb:
+                    thumbnail_url = self.request.build_absolute_uri(thumb)
         except Exception:
             pass
 

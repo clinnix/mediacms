@@ -190,30 +190,33 @@
 
 					if( response.success ){
 
-						if( response.media_url ) {
+						var mediaUrl = response.media_url;
+
+						// Guard: only use media_url if it looks like a real path
+						if( mediaUrl && typeof mediaUrl === 'string' && mediaUrl.indexOf('/') === 0 ) {
+
 							if( 1 === this._currentItemLimit ) {
-								setTimeout(function(){ window.location.href = response.media_url; }, 500);
+								setTimeout(function(){ window.location.href = mediaUrl; }, 500);
 								return;
 							}
-						}
 
-						var listEl = document.querySelector( '.qq-file-id-' + id );
-						var viewFileEl = listEl.querySelector( '.view-uploaded-media-link' );
+							var listEl = document.querySelector( '.qq-file-id-' + id );
+							var viewFileEl = listEl ? listEl.querySelector( '.view-uploaded-media-link' ) : null;
 
-						if( listEl ){
-							var fileUrl = response.media_url;
-							listEl.style.cursor = 'pointer';
-							listEl.addEventListener( 'click', function(ev){
-								ev.preventDefault();
-								ev.stopPropagation();
-								var win = window.open( fileUrl, '_blank' );
-								win.focus();
-							});
-						}
+							if( listEl ){
+								listEl.style.cursor = 'pointer';
+								listEl.addEventListener( 'click', function(ev){
+									ev.preventDefault();
+									ev.stopPropagation();
+									var win = window.open( mediaUrl, '_blank' );
+									win.focus();
+								});
+							}
 
-						if( viewFileEl ){
-							viewFileEl.setAttribute( 'href', response.media_url );
-							viewFileEl.setAttribute( 'class', 'view-uploaded-media-link' );
+							if( viewFileEl ){
+								viewFileEl.setAttribute( 'href', mediaUrl );
+								viewFileEl.setAttribute( 'class', 'view-uploaded-media-link' );
+							}
 						}
 					}
 				},
