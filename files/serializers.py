@@ -145,6 +145,12 @@ class SingleMediaSerializer(serializers.ModelSerializer):
                 if isinstance(enc, dict) and isinstance(enc.get('url'), str):
                     if enc['url'].startswith(cf_base):
                         enc['url'] = f"{enc['url']}?token={token}"
+
+        # Inject ?token= into original_media_url
+        original_url = data.get('original_media_url')
+        if isinstance(original_url, str) and original_url.startswith(cf_base):
+            data['original_media_url'] = f"{original_url}?token={token}"
+
         return data
 
     class Meta:

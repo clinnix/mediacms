@@ -223,9 +223,11 @@ def show_recommended_media(request, limit=100):
     basic_query = Q(listable=True)
     pmi = cache.get("popular_media_ids")
     # produced by task get_list_of_popular_media and cached
+    media = []
     if pmi:
         media = list(models.Media.objects.filter(friendly_token__in=pmi).filter(basic_query).prefetch_related("user")[:limit])
-    else:
+    if not media:
+        # Fallback: cached list stale/empty or cache miss → return latest by views/likes
         media = list(models.Media.objects.filter(basic_query).order_by("-views", "-likes").prefetch_related("user")[:limit])
     random.shuffle(media)
     return media
