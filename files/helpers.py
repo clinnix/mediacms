@@ -231,6 +231,30 @@ def upload_file_to_b2(local_path):
     return key
 
 
+def delete_file_from_b2(local_path):
+    """删除 B2 上的单个对象（由本地路径推算 key）；对象不存在时静默忽略"""
+    key = b2_key_from_path(local_path)
+    if not key:
+        return
+    try:
+        get_b2_client().delete_object(Bucket=settings.B2_BUCKET_NAME, Key=key)
+    except Exception:
+        pass
+
+
+def delete_prefix_from_b2(local_dir):
+    """删除 B2 上以本地目录对应 prefix 开头的所有对象（用于 HLS 目录整体删除）"""
+    prefix = b2_key_from_path(local_dir).rstrip('/') + '/'
+    if not prefix or prefix == '/':
+        return
+    client = get_b2_client()
+    paginator = client.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=settings.B2_BUCKET_NAME, Prefix=prefix):
+        objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
+        if objects:
+            client.delete_objects(Bucket=settings.B2_BUCKET_NAME, Delete={'Objects': objects})
+
+
 def generate_b2_presigned_url(local_path, expires=None):
     """为 B2 上的对象生成预签名 URL，expires 单位为秒"""
     if expires is None:

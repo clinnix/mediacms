@@ -1061,24 +1061,33 @@ def media_file_pre_delete(sender, instance, **kwargs):
 @receiver(post_delete, sender=Media)
 def media_file_delete(sender, instance, **kwargs):
     """
-    Deletes file from filesystem
+    Deletes file from filesystem (and from B2 when USE_B2_STORAGE is enabled)
     when corresponding `Media` object is deleted.
     """
+    use_b2 = getattr(settings, 'USE_B2_STORAGE', False)
+
+    def _rm(path):
+        helpers.rm_file(path)
+        if use_b2:
+            helpers.delete_file_from_b2(path)
+
     if instance.media_file:
-        helpers.rm_file(instance.media_file.path)
+        _rm(instance.media_file.path)
     if instance.thumbnail:
-        helpers.rm_file(instance.thumbnail.path)
+        _rm(instance.thumbnail.path)
     if instance.poster:
-        helpers.rm_file(instance.poster.path)
+        _rm(instance.poster.path)
     if instance.uploaded_thumbnail:
-        helpers.rm_file(instance.uploaded_thumbnail.path)
+        _rm(instance.uploaded_thumbnail.path)
     if instance.uploaded_poster:
-        helpers.rm_file(instance.uploaded_poster.path)
+        _rm(instance.uploaded_poster.path)
     if instance.sprites:
-        helpers.rm_file(instance.sprites.path)
+        _rm(instance.sprites.path)
     if instance.hls_file:
         p = os.path.dirname(instance.hls_file)
         helpers.rm_dir(p)
+        if use_b2:
+            helpers.delete_prefix_from_b2(p)
 
     instance.user.update_user_media()
 

@@ -299,6 +299,8 @@ def encoding_file_delete(sender, instance, **kwargs):
 
     if instance.media_file:
         helpers.rm_file(instance.media_file.path)
+        if getattr(settings, 'USE_B2_STORAGE', False) and not instance.chunk:
+            helpers.delete_file_from_b2(instance.media_file.path)
         if not instance.chunk:
             instance.media.post_encode_actions(encoding=instance, action="delete")
     # delete local chunks, and remote chunks + media file. Only when the
