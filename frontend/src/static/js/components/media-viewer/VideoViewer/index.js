@@ -430,7 +430,7 @@ export default class VideoViewer extends React.PureComponent {
                         ref="playerContainerInner"
                         style={this.props.containerStyles}
                     >
-                        {/* this.state.displayPlayer && */ null == MediaPageStore.get('media-load-error-type') ? (
+                        {null == MediaPageStore.get('media-load-error-type') ? (
                             <div className="video-player" ref="videoJSPlayerWrapper" key="videoJSPlayerWrapper">
                                 <SiteConsumer>
                                     {(site) => {
@@ -474,7 +474,16 @@ export default class VideoViewer extends React.PureComponent {
                                     }}
                                 </SiteConsumer>
                             </div>
-                        ) : null}
+                        ) : (
+                            <div className="error-container">
+                                <div className="error-container-inner">
+                                    <span className="icon-wrap">
+                                        <i className="material-icons">error_outline</i>
+                                    </span>
+                                    <span className="msg-wrap">{MediaPageStore.get('media-load-error-message')}</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </>
