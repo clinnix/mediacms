@@ -68,7 +68,19 @@ class FineUploaderView(generic.FormView):
             new = Media.objects.create(media_file=myfile, user=self.request.user, title=self.upload.original_filename)
         rm_file(media_file)
         shutil.rmtree(os.path.join(settings.MEDIA_ROOT, self.upload.file_path))
-        return self.make_response({"success": True, "media_url": new.get_absolute_url()})
+
+        # 同步提取首帧缩略图，让 FineUploader 立即显示预览图
+        thumbnail_url = None
+        try:
+            _video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v', '.flv', '.wmv', '.mpeg', '.mpg', '.3gp'}
+            if os.path.splitext(new.media_file.name)[1].lower() in _video_exts:
+                new.media_type = 'video'  # 仅内存赋值，不持久化
+                if new.produce_thumbnails_from_video():
+                    thumbnail_url = self.request.build_absolute_uri(new.thumbnail_url)
+        except Exception:
+            pass
+
+        return self.make_response({"success": True, "media_url": new.get_absolute_url(), "thumbnailUrl": thumbnail_url})
 
     def form_invalid(self, form):
         data = {"success": False, "error": "%s" % repr(form.errors)}
