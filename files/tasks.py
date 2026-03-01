@@ -23,8 +23,10 @@ from users.models import User
 from .backends import FFmpegBackend
 from .exceptions import VideoEncodingError
 from .helpers import (
+    b2_key_from_path,
     calculate_seconds,
     create_temp_file,
+    get_b2_client,
     get_file_name,
     get_file_type,
     get_trim_timestamps,
@@ -1177,6 +1179,17 @@ def upload_media_to_b2(self, friendly_token):
                         uploaded.append(fpath)
                     except Exception as exc:
                         errors.append(f"hls {fpath}: {exc}")
+        else:
+            # 本地 HLS 目录不存在（可能已被上一次任务删除），
+            # 检查 B2 上是否已有 master.m3u8，若没有则报错重试
+            master_key = b2_key_from_path(media.hls_file)
+            try:
+                get_b2_client().head_object(
+                    Bucket=settings.B2_BUCKET_NAME, Key=master_key
+                )
+                logger.info("upload_media_to_b2 %s HLS 已在 B2: %s", friendly_token, master_key)
+            except Exception:
+                errors.append(f"HLS 目录本地不存在且 B2 无此文件: {hls_dir}")
 
     # ── 失败则重试，不删任何本地文件 ─────────────────────────────────────────
     if errors:
