@@ -283,13 +283,9 @@ export default class VideoViewer extends React.PureComponent {
 
     _startB2Polling(mediaData) {
         // Fetch the media API every 5 s; reload the page once b2_status is 'success'
-        const apiUrl =
-            (window.MediaCMS && window.MediaCMS.api && window.MediaCMS.api.media
-                ? window.MediaCMS.api.media
-                : '/api/v1/media') +
-            '/' +
-            mediaData.friendly_token +
-            '/';
+        const token = (mediaData && mediaData.friendly_token) || window.MediaCMS.mediaId;
+        if (!token) { return; }
+        const apiUrl = '/api/v1/media/' + token + '/';
 
         this._b2PollInterval = setInterval(function () {
             fetch(apiUrl, { credentials: 'same-origin' })

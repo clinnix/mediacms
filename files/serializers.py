@@ -217,6 +217,7 @@ class SingleMediaSerializer(serializers.ModelSerializer):
             "slideshow_items",
             "video_token",
             "b2_status",
+            "friendly_token",
         )
 
 
