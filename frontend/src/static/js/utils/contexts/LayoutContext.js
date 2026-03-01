@@ -45,7 +45,12 @@ export const LayoutProvider = ({ children }) => {
     const site = useContext(SiteContext);
     const cache = new BrowserCache('MediaCMS[' + site.id + '][layout]', 86400);
 
-    const isMediaPage = useMemo(() => PageStore.get('current-page') === 'media', []);
+    // Check both PageStore (set by _VideoMediaPage constructor which runs after LayoutProvider renders)
+    // and window.MediaCMS.mediaId (injected by Django template before any JS runs — always available)
+    const isMediaPage = useMemo(
+        () => PageStore.get('current-page') === 'media' || Boolean(window?.MediaCMS?.mediaId),
+        []
+    );
     const isEmbeddedApp = useMemo(() => inEmbeddedApp(), []);
 
     const enabledSidebar = Boolean(document.getElementById('app-sidebar') || document.querySelector('.page-sidebar'));
