@@ -391,12 +391,21 @@ LOGGING = {
             "class": "logging.FileHandler",
             "filename": error_filename,
         },
+        "console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+        },
     },
     "loggers": {
         "django": {
             "handlers": ["file"],
             "level": "ERROR",
             "propagate": True,
+        },
+        "files": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
         },
     },
 }
