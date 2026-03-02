@@ -1,3 +1,4 @@
+import json
 import os
 
 from django.conf import settings
@@ -63,23 +64,42 @@ class LocalImportFile(APIView):
         if not os.path.isfile(filepath):
             return Response({"success": False, "error": "File not found"}, status=404)
 
-        title = os.path.splitext(filename)[0]
+        stem = os.path.splitext(filename)[0]
+
+        # 读取同名 .info.json 元数据文件（由 telegram movie_downloader 写入）
+        info_path = filepath + ".info.json"
+        info = {}
+        if os.path.isfile(info_path):
+            try:
+                with open(info_path, "r", encoding="utf-8") as f:
+                    info = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        title = info.get("title") or stem
+        description = info.get("description") or ""
 
         try:
             with open(filepath, "rb") as f:
                 media = Media.objects.create(
                     user=request.user,
                     title=title,
+                    description=description,
                     media_file=File(f, name=filename),
                 )
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)
 
-        # Remove file from import directory after successful import
+        # 删除已导入的文件和元数据文件
         try:
             os.remove(filepath)
         except OSError:
             pass
+        if os.path.isfile(info_path):
+            try:
+                os.remove(info_path)
+            except OSError:
+                pass
 
         return Response({
             "success": True,
