@@ -414,6 +414,8 @@ class Media(models.Model):
                 self.encoding_status = "success"
                 self.save()
                 self.produce_sprite_from_video()
+                from files import tasks
+                tasks.faststart_video.delay(self.friendly_token)
             else:
                 self.produce_sprite_from_video()
                 self.encode()

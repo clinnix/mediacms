@@ -1116,6 +1116,52 @@ def video_trim_task(self, trim_request_id):
 # 3 beat task, remove chunks
 
 
+@task(name="faststart_video", queue="long_tasks")
+def faststart_video(friendly_token):
+    """对原始 MP4 文件运行 ffmpeg -movflags faststart，把 moov 原子移到文件头部。
+    完成后触发 B2 上传。不重新编码，速度快（通常几秒至几十秒）。
+    """
+    import subprocess
+    import tempfile
+
+    try:
+        media = Media.objects.get(friendly_token=friendly_token)
+    except Media.DoesNotExist:
+        return
+
+    src = media.media_file.path
+    if not os.path.isfile(src):
+        logger.info("faststart_video %s: 原始文件不存在，跳过", friendly_token)
+        upload_media_to_b2.delay(friendly_token)
+        return
+
+    ext = os.path.splitext(src)[1].lower()
+    if ext not in ('.mp4', '.m4v', '.mov'):
+        logger.info("faststart_video %s: 非 MP4 格式 (%s)，跳过 faststart", friendly_token, ext)
+        upload_media_to_b2.delay(friendly_token)
+        return
+
+    tmp_path = src + '.faststart.tmp'
+    try:
+        result = subprocess.run(
+            [settings.FFMPEG_COMMAND, '-i', src, '-c', 'copy', '-movflags', 'faststart', tmp_path, '-y'],
+            capture_output=True, timeout=600,
+        )
+        if result.returncode == 0:
+            os.replace(tmp_path, src)
+            logger.info("faststart_video %s: moov 已移至文件头", friendly_token)
+        else:
+            logger.warning("faststart_video %s: ffmpeg 失败，跳过: %s", friendly_token, result.stderr[-200:])
+    except Exception as e:
+        logger.warning("faststart_video %s: 异常，跳过: %s", friendly_token, e)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    if getattr(settings, 'USE_B2_STORAGE', False):
+        upload_media_to_b2.delay(friendly_token)
+
+
 @task(name="upload_media_to_b2", bind=True, queue="long_tasks", max_retries=3, default_retry_delay=60)
 def upload_media_to_b2(self, friendly_token):
     """将媒体文件全量上传到 Backblaze B2 私有桶，全部成功后删除本地文件。
