@@ -1,0 +1,203 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}本地上传 | {{ block.super }}{% endblock %}
+
+{% block content_title %}<h1>本地上传</h1>{% endblock %}
+
+{% block content %}
+<div id="local-import-app">
+  <div id="file-list-section">
+    <p id="loading-msg">正在扫描导入目录...</p>
+    <div id="file-table-wrap" style="display:none;">
+      <table class="table" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="width:36px;padding:8px;"><input type="checkbox" id="select-all" title="全选"></th>
+            <th style="padding:8px;text-align:left;">文件名</th>
+            <th style="padding:8px;text-align:right;">大小</th>
+            <th style="padding:8px;text-align:center;">状态</th>
+          </tr>
+        </thead>
+        <tbody id="file-tbody"></tbody>
+      </table>
+      <div style="margin-top:12px;">
+        <button id="import-btn" class="button" style="padding:8px 20px;font-size:14px;">导入选中文件</button>
+      </div>
+    </div>
+    <p id="no-files-msg" style="display:none;">导入目录中没有可导入的文件。<br>请将文件放入服务器上的 <code>media_import/</code> 目录后刷新此页面。</p>
+  </div>
+
+  <div id="progress-section" style="display:none;margin-top:24px;">
+    <h2 style="font-size:16px;margin-bottom:8px;">导入进度</h2>
+    <div id="current-file" style="margin-bottom:6px;color:#555;font-size:13px;"></div>
+    <progress id="progress-bar" value="0" max="100" style="width:100%;height:20px;"></progress>
+    <div id="progress-stats" style="margin-top:6px;font-size:13px;"></div>
+    <div id="fail-list" style="margin-top:8px;color:#ba2121;font-size:13px;"></div>
+    <div id="done-msg" style="display:none;margin-top:12px;font-weight:bold;color:#28a745;font-size:15px;"></div>
+  </div>
+</div>
+
+<style>
+#local-import-app table th {
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+}
+#local-import-app table td {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+}
+#local-import-app tr.row-done td { color: #888; }
+#local-import-app tr.row-fail td { color: #ba2121; }
+#local-import-app tr.row-importing td { font-weight: bold; }
+</style>
+
+<script>
+(function() {
+  var fileData = [];
+  var tbody = document.getElementById('file-tbody');
+  var progressSection = document.getElementById('progress-section');
+  var progressBar = document.getElementById('progress-bar');
+  var progressStats = document.getElementById('progress-stats');
+  var currentFileEl = document.getElementById('current-file');
+  var failListEl = document.getElementById('fail-list');
+  var doneMsgEl = document.getElementById('done-msg');
+  var importBtn = document.getElementById('import-btn');
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  function getCsrfToken() {
+    var match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? match[1] : '';
+  }
+
+  function renderFiles(files) {
+    tbody.innerHTML = '';
+    files.forEach(function(f, i) {
+      var tr = document.createElement('tr');
+      tr.id = 'row-' + i;
+      tr.innerHTML =
+        '<td><input type="checkbox" class="file-cb" data-index="' + i + '" checked></td>' +
+        '<td class="col-name">' + escapeHtml(f.name) + '</td>' +
+        '<td class="col-size" style="text-align:right;">' + formatSize(f.size) + '</td>' +
+        '<td class="col-status" style="text-align:center;">—</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function setRowStatus(index, text, cls) {
+    var tr = document.getElementById('row-' + index);
+    if (!tr) return;
+    tr.className = cls || '';
+    tr.querySelector('.col-status').textContent = text;
+  }
+
+  // Load file list
+  fetch('/api/v1/local_import/files', {credentials: 'same-origin'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('loading-msg').style.display = 'none';
+      fileData = data.files || [];
+      if (fileData.length === 0) {
+        document.getElementById('no-files-msg').style.display = '';
+        return;
+      }
+      document.getElementById('file-table-wrap').style.display = '';
+      renderFiles(fileData);
+    })
+    .catch(function() {
+      document.getElementById('loading-msg').textContent = '加载失败，请刷新页面重试。';
+    });
+
+  // Select-all checkbox
+  document.getElementById('select-all').addEventListener('change', function() {
+    var checked = this.checked;
+    document.querySelectorAll('.file-cb').forEach(function(cb) { cb.checked = checked; });
+  });
+
+  // Import button
+  importBtn.addEventListener('click', function() {
+    var selected = [];
+    document.querySelectorAll('.file-cb:checked').forEach(function(cb) {
+      selected.push(parseInt(cb.getAttribute('data-index'), 10));
+    });
+    if (selected.length === 0) {
+      alert('请先选择要导入的文件');
+      return;
+    }
+    importBtn.disabled = true;
+    progressSection.style.display = '';
+    progressBar.max = selected.length;
+    progressBar.value = 0;
+
+    var done = 0;
+    var fail = 0;
+    var fails = [];
+
+    function updateStats() {
+      progressStats.textContent = '已完成 ' + done + ' / 共 ' + selected.length + '，失败 ' + fail;
+    }
+    updateStats();
+
+    // Sequential import using async/await via promise chain
+    var chain = Promise.resolve();
+    selected.forEach(function(idx) {
+      chain = chain.then(function() {
+        var filename = fileData[idx].name;
+        setRowStatus(idx, '上传中…', 'row-importing');
+        currentFileEl.textContent = '正在导入：' + filename;
+        return fetch('/api/v1/local_import/import', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+          },
+          body: JSON.stringify({filename: filename})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.success) {
+            done++;
+            setRowStatus(idx, '✓ 已导入', 'row-done');
+          } else {
+            fail++;
+            var err = data.error || '未知错误';
+            setRowStatus(idx, '✗ 失败', 'row-fail');
+            fails.push(filename + ': ' + err);
+          }
+        })
+        .catch(function(e) {
+          fail++;
+          setRowStatus(idx, '✗ 网络错误', 'row-fail');
+          fails.push(filename + ': 网络错误');
+        })
+        .finally(function() {
+          progressBar.value = done + fail;
+          updateStats();
+        });
+      });
+    });
+
+    chain.then(function() {
+      currentFileEl.textContent = '';
+      if (fails.length > 0) {
+        failListEl.innerHTML = '<strong>失败列表：</strong><br>' +
+          fails.map(function(f) { return escapeHtml(f); }).join('<br>');
+      }
+      doneMsgEl.style.display = '';
+      doneMsgEl.textContent = '完成！共导入 ' + done + ' 个，失败 ' + fail + ' 个。';
+    });
+  });
+})();
+</script>
+{% endblock %}

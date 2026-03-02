@@ -113,6 +113,8 @@ urlpatterns = [
     re_path(r"^api/v1/manage_media$", management_views.MediaList.as_view()),
     re_path(r"^api/v1/manage_comments$", management_views.CommentList.as_view()),
     re_path(r"^api/v1/manage_users$", management_views.UserList.as_view()),
+    re_path(r"^api/v1/local_import/files$", views.LocalImportFileList.as_view()),
+    re_path(r"^api/v1/local_import/import$", views.LocalImportFile.as_view()),
     re_path(r"^api/v1/tasks$", views.TasksList.as_view()),
     re_path(r"^api/v1/tasks/$", views.TasksList.as_view()),
     re_path(r"^api/v1/tasks/(?P<friendly_token>[\w|\W]*)$", views.TaskDetail.as_view()),

@@ -8,6 +8,17 @@ class AdminCustomizationsConfig(AppConfig):
     name = 'admin_customizations'
 
     def ready(self):
+        # Register the /admin/local-import/ URL
+        original_get_urls = admin.AdminSite.get_urls
+
+        def patched_get_urls(self):
+            from django.urls import path
+            from admin_customizations.views import local_import_view
+            custom = [path('local-import/', self.admin_view(local_import_view), name='local_import')]
+            return custom + original_get_urls(self)
+
+        admin.AdminSite.get_urls = patched_get_urls
+
         original_get_app_list = admin.AdminSite.get_app_list
 
         def get_app_list(self, request, app_label=None):
@@ -80,6 +91,20 @@ class AdminCustomizationsConfig(AppConfig):
             }
 
             app_list.sort(key=lambda x: app_order.get(x['app_label'], 999))
+
+            # 4. inject Local Import link into the files app
+            local_import_entry = {
+                'name': '本地上传',
+                'object_name': 'LocalImport',
+                'perms': {'add': False, 'change': True, 'delete': False, 'view': True},
+                'admin_url': '/admin/local-import/',
+                'add_url': None,
+                'view_only': True,
+            }
+            for app in app_list:
+                if app['app_label'] == 'files':
+                    app['models'].append(local_import_entry)
+                    break
 
             return app_list
 
