@@ -71,12 +71,28 @@ export default {
       return new Response(`B2 signing error: ${e.message}`, { status: 502 });
     }
 
+    // ── CF Cache API：以文件路径为 key 缓存内容（JWT 已验证，缓存安全）────────
+    const isM3u8 = b2Key.endsWith('.m3u8');
+    const rangeHeader = request.headers.get('Range') || '';
+    // m3u8 和 Range 请求不走缓存（内容动态 / 分片）
+    const useCache = !isM3u8 && !rangeHeader;
+    const cache = caches.default;
+    const cacheKey = new Request(`https://cf-cache.internal${url.pathname}`, { method: 'GET' });
+
+    if (useCache) {
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        const h = new Headers(cached.headers);
+        h.set('Access-Control-Allow-Origin', '*');
+        h.set('X-Cache', 'HIT');
+        return new Response(cached.body, { status: cached.status, headers: h });
+      }
+    }
+
     // ── 代理请求到 B2，透传 Range 头（支持视频 seek）────────────────────────
     const b2Request = new Request(signedUrl, {
       method: request.method,
-      headers: {
-        Range: request.headers.get('Range') || '',
-      },
+      headers: { Range: rangeHeader },
     });
 
     const b2Response = await fetch(b2Request);
@@ -84,19 +100,31 @@ export default {
     // 透传响应，追加 CORS 和缓存头
     const respHeaders = new Headers(b2Response.headers);
     respHeaders.set('Access-Control-Allow-Origin', '*');
-    respHeaders.set('Cache-Control', 'private, max-age=3600');
+    respHeaders.set('X-Cache', 'MISS');
 
     // ── HLS m3u8：重写相对 URI，注入 ?token= ─────────────────────────────────
-    const isM3u8 = b2Key.endsWith('.m3u8');
     if (isM3u8 && b2Response.ok) {
       const bodyText = await b2Response.text();
       const rewritten = rewriteM3u8(bodyText, token);
       respHeaders.set('Content-Type', 'application/vnd.apple.mpegurl');
+      respHeaders.set('Cache-Control', 'private, no-store');
       respHeaders.delete('Content-Length');
       return new Response(rewritten, {
         status: b2Response.status,
         headers: respHeaders,
       });
+    }
+
+    // 视频/普通文件：写入 CF 缓存（1天），后续请求直接从边缘返回
+    if (useCache && b2Response.ok) {
+      respHeaders.set('Cache-Control', 'public, max-age=86400');
+      const responseToCache = new Response(b2Response.clone().body, {
+        status: b2Response.status,
+        headers: respHeaders,
+      });
+      await cache.put(cacheKey, responseToCache);
+    } else {
+      respHeaders.set('Cache-Control', 'private, no-store');
     }
 
     return new Response(b2Response.body, {
