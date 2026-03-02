@@ -1141,7 +1141,7 @@ def faststart_video(friendly_token):
         upload_media_to_b2.delay(friendly_token)
         return
 
-    tmp_path = src + '.faststart.tmp'
+    tmp_path = src + '.tmp.mp4'
     try:
         result = subprocess.run(
             [settings.FFMPEG_COMMAND, '-i', src, '-c', 'copy', '-movflags', 'faststart', tmp_path, '-y'],
@@ -1156,7 +1156,10 @@ def faststart_video(friendly_token):
         logger.warning("faststart_video %s: 异常，跳过: %s", friendly_token, e)
     finally:
         if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
     if getattr(settings, 'USE_B2_STORAGE', False):
         upload_media_to_b2.delay(friendly_token)
