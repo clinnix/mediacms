@@ -1482,6 +1482,15 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
                     const progressControl = controlBar.getChild('progressControl');
                     const seekBar = progressControl?.getChild('seekBar');
 
+                    // Ensure loadProgressBar component exists (options-based init may fail)
+                    if (seekBar && !seekBar.getChild('loadProgressBar')) {
+                        const lpb = seekBar.addChild('loadProgressBar', {});
+                        const ppbEl = seekBar.el()?.querySelector('.vjs-play-progress');
+                        if (lpb?.el() && ppbEl) {
+                            seekBar.el().insertBefore(lpb.el(), ppbEl);
+                        }
+                    }
+
                     // BEGIN: Apply control bar styling from config (always applied)
                     const controlBarEl = controlBar?.el();
                     if (controlBarEl) {
