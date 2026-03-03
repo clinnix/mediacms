@@ -473,6 +473,14 @@ if os.environ.get("TESTING"):
 # if True, only show original, don't perform any action on videos
 DO_NOT_TRANSCODE_VIDEO = False
 
+# 当 DO_NOT_TRANSCODE_VIDEO=True 时，是否将原始视频切成 HLS 分片（stream copy，不重编码）
+# True  → ffmpeg -c copy -f hls，分片后上传 B2；seek 走 HLS 分片，CF 可缓存
+# False → ffmpeg -movflags faststart（当前行为），单文件 MP4 上传 B2
+HLS_SEGMENT_ORIGINAL = False
+
+# HLS 分片时长（秒），仅 HLS_SEGMENT_ORIGINAL=True 时生效
+HLS_SEGMENT_DURATION = 4
+
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
 LANGUAGES = [

@@ -1165,6 +1165,66 @@ def faststart_video(friendly_token):
         upload_media_to_b2.delay(friendly_token)
 
 
+@task(name="segment_original_to_hls", queue="long_tasks")
+def segment_original_to_hls(friendly_token):
+    """将原始视频用 ffmpeg stream copy 切成 HLS 分片（不重编码）。
+    完成后设置 media.hls_file，触发 B2 上传。
+    速度接近 IO 速度，画质无损，分片可被 CF 边缘缓存。
+    """
+    import subprocess
+
+    try:
+        media = Media.objects.get(friendly_token=friendly_token)
+    except Media.DoesNotExist:
+        return
+
+    src = media.media_file.path
+    if not os.path.isfile(src):
+        logger.info("segment_original_to_hls %s: 原始文件不存在，跳过", friendly_token)
+        upload_media_to_b2.delay(friendly_token)
+        return
+
+    p = media.uid.hex
+    output_dir = os.path.join(settings.HLS_DIR, p)
+    os.makedirs(output_dir, exist_ok=True)
+
+    m3u8_path = os.path.join(output_dir, "master.m3u8")
+    segment_pattern = os.path.join(output_dir, "segment%03d.ts")
+    segment_duration = getattr(settings, 'HLS_SEGMENT_DURATION', 4)
+
+    cmd = [
+        settings.FFMPEG_COMMAND,
+        '-i', src,
+        '-c', 'copy',
+        '-f', 'hls',
+        '-hls_time', str(segment_duration),
+        '-hls_segment_type', 'mpegts',
+        '-hls_playlist_type', 'vod',
+        '-hls_segment_filename', segment_pattern,
+        '-y',
+        m3u8_path,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=1800)
+    except Exception as e:
+        logger.error("segment_original_to_hls %s: 异常: %s", friendly_token, e)
+        upload_media_to_b2.delay(friendly_token)
+        return
+
+    if result.returncode != 0 or not os.path.exists(m3u8_path):
+        logger.error("segment_original_to_hls %s: ffmpeg 失败: %s",
+                     friendly_token, result.stderr[-300:] if result.stderr else '')
+        upload_media_to_b2.delay(friendly_token)
+        return
+
+    logger.info("segment_original_to_hls %s: HLS 生成完毕 → %s", friendly_token, m3u8_path)
+    Media.objects.filter(pk=media.pk).update(hls_file=m3u8_path)
+
+    if getattr(settings, 'USE_B2_STORAGE', False):
+        upload_media_to_b2.delay(friendly_token)
+
+
 @task(name="upload_media_to_b2", bind=True, queue="long_tasks", max_retries=3, default_retry_delay=60)
 def upload_media_to_b2(self, friendly_token):
     """将媒体文件全量上传到 Backblaze B2 私有桶，全部成功后删除本地文件。

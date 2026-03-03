@@ -34,3 +34,8 @@ CELERY_RESULT_BACKEND = BROKER_URL
 MP4HLS_COMMAND = "/home/mediacms.io/bento4/bin/mp4hls"
 
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
+
+# Skip ffmpeg transcoding; videos are uploaded to B2 as-is (with faststart)
+DO_NOT_TRANSCODE_VIDEO = True
+HLS_SEGMENT_ORIGINAL = True   # stream copy HLS，替代 faststart
+HLS_SEGMENT_DURATION = 4      # 每片 4 秒

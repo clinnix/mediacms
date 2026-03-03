@@ -415,7 +415,10 @@ class Media(models.Model):
                 self.save()
                 self.produce_sprite_from_video()
                 from files import tasks
-                tasks.faststart_video.delay(self.friendly_token)
+                if getattr(settings, 'HLS_SEGMENT_ORIGINAL', False):
+                    tasks.segment_original_to_hls.delay(self.friendly_token)
+                else:
+                    tasks.faststart_video.delay(self.friendly_token)
             else:
                 self.produce_sprite_from_video()
                 self.encode()
