@@ -23,7 +23,7 @@ const PlayerConfig = {
         color: '#019932',
 
         // Background color of the progress track
-        trackColor: 'rgba(255, 255, 255, 0.3)',
+        trackColor: 'rgba(255, 255, 255, 0.2)',
 
         // Loaded buffer color
         bufferColor: 'rgba(255, 255, 255, 0.5)',
