@@ -35,6 +35,15 @@ MP4HLS_COMMAND = "/home/mediacms.io/bento4/bin/mp4hls"
 
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
+# ── Backblaze B2 ──────────────────────────────────────────────
+USE_B2_STORAGE = os.getenv('USE_B2_STORAGE', 'False') == 'True'
+B2_KEY_ID = os.getenv('B2_KEY_ID', '')
+B2_APP_KEY = os.getenv('B2_APP_KEY', '')
+B2_BUCKET_NAME = os.getenv('B2_BUCKET_NAME', '')
+B2_ENDPOINT_URL = os.getenv('B2_ENDPOINT_URL', 'https://s3.us-west-004.backblazeb2.com')
+B2_REGION = os.getenv('B2_REGION', 'us-west-004')
+CF_WORKER_BASE_URL = os.getenv('CF_WORKER_BASE_URL', '')
+
 # Skip ffmpeg transcoding; videos are uploaded to B2 as-is (with faststart)
 DO_NOT_TRANSCODE_VIDEO = True
 HLS_SEGMENT_ORIGINAL = True   # stream copy HLS，替代 faststart
