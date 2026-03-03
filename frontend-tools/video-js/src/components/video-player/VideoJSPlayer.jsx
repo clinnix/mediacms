@@ -1175,7 +1175,7 @@ function VideoJSPlayer({ videoId = 'default-video', showTitle = true, showRelate
                     controlBar: {
                         playToggle: true,
                         progressControl: {
-                            seekBar: { loadProgressBar: false }, // Hide the buffered/loaded progress indicator
+                            seekBar: { loadProgressBar: true }, // Show buffered/loaded progress indicator
                         },
                         // Remaining time display configuration
                         currentTimeDisplay: false,
