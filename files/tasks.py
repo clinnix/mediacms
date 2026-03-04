@@ -1184,6 +1184,26 @@ def segment_original_to_hls(friendly_token):
         upload_media_to_b2.delay(friendly_token)
         return
 
+    # 检测视频编码，只有 H.264 才支持 MPEG-TS stream copy（Chrome 兼容）
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
+             '-show_entries', 'stream=codec_name',
+             '-of', 'default=noprint_wrappers=1:nokey=1', src],
+            capture_output=True, text=True, timeout=30,
+        )
+        codec = probe.stdout.strip()
+    except Exception:
+        codec = ''
+
+    if codec != 'h264':
+        logger.info("segment_original_to_hls %s: 视频编码为 %s（非 H.264），回退到 faststart",
+                    friendly_token, codec or 'unknown')
+        faststart_video.delay(friendly_token)
+        return
+
+    logger.info("segment_original_to_hls %s: 检测到 H.264，开始 HLS 分片", friendly_token)
+
     p = media.uid.hex
     output_dir = os.path.join(settings.HLS_DIR, p)
     os.makedirs(output_dir, exist_ok=True)
