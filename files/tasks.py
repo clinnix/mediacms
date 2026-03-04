@@ -1196,13 +1196,16 @@ def segment_original_to_hls(friendly_token):
     except Exception:
         codec = ''
 
-    if codec != 'h264':
-        logger.info("segment_original_to_hls %s: 视频编码为 %s（非 H.264），回退到 faststart",
+    if codec == 'h264':
+        video_args = ['-c:v', 'copy']
+        timeout = 1800
+        logger.info("segment_original_to_hls %s: H.264 stream copy", friendly_token)
+    else:
+        # H.265/VP9/AV1 等转码为 H.264，确保浏览器兼容
+        video_args = ['-c:v', 'libx264', '-preset', 'fast', '-crf', '26']
+        timeout = 14400  # 转码最长 4 小时
+        logger.info("segment_original_to_hls %s: %s → H.264 转码开始（耗时较长）",
                     friendly_token, codec or 'unknown')
-        faststart_video.delay(friendly_token)
-        return
-
-    logger.info("segment_original_to_hls %s: 检测到 H.264，开始 HLS 分片", friendly_token)
 
     p = media.uid.hex
     output_dir = os.path.join(settings.HLS_DIR, p)
@@ -1215,7 +1218,8 @@ def segment_original_to_hls(friendly_token):
     cmd = [
         settings.FFMPEG_COMMAND,
         '-i', src,
-        '-c', 'copy',
+        *video_args,
+        '-c:a', 'copy',
         '-f', 'hls',
         '-hls_time', str(segment_duration),
         '-hls_segment_type', 'mpegts',
@@ -1226,7 +1230,7 @@ def segment_original_to_hls(friendly_token):
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=1800)
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
     except Exception as e:
         logger.error("segment_original_to_hls %s: 异常: %s", friendly_token, e)
         upload_media_to_b2.delay(friendly_token)
