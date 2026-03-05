@@ -1202,8 +1202,9 @@ def segment_original_to_hls(friendly_token):
         logger.info("segment_original_to_hls %s: H.264 stream copy", friendly_token)
     else:
         # H.265/VP9/AV1 等转码为 H.264，确保浏览器兼容
-        video_args = ['-c:v', 'libx264', '-preset', 'fast', '-crf', '26']
-        timeout = 14400  # 转码最长 4 小时
+        # ultrafast 比 fast 快 3-5 倍，适合大文件；文件略大但可接受
+        video_args = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28']
+        timeout = 86400  # 转码最长 24 小时
         logger.info("segment_original_to_hls %s: %s → H.264 转码开始（耗时较长）",
                     friendly_token, codec or 'unknown')
 
